@@ -611,12 +611,50 @@ function makeEx(id, sets, reps) {
 }
 
 function getDefaultPlan() {
+  const e = (id, name, search, category, sets, reps) => ({ id, name, search, category, sets, reps });
   return {
-    Sunday:    [ makeEx('bk1','3','8–10'), makeEx('bk3','3','8–10'), makeEx('bk6','3','12–15'), makeEx('ar1','3','8–10'), makeEx('ar2','3','12–15'), makeEx('ab2','3','15–20') ],
-    Monday:    [ makeEx('ch2','3','6–8'), makeEx('ch1','3','6–8'), makeEx('ch7','3','10–12'), makeEx('ch4','3','12–15'), makeEx('sh2','3','15'), makeEx('ar5','3','10–12'), makeEx('ar6','3','12–15') ],
-    Tuesday:   [ makeEx('lg3','4','6–10'), makeEx('lg1','3','10–12'), makeEx('lg4','3','12–15'), makeEx('lg5','3','12–15'), makeEx('lg9','4','15–20'), makeEx('ab2','3','15–20') ],
-    Wednesday: [ makeEx('sh1','3','8–12'), makeEx('sh2','4','15–20'), makeEx('sh4','3','12–15'), makeEx('sh5','3','15–20') ],
-    Thursday:  [ makeEx('ch2','3','10–12'), makeEx('ch4','3','15'), makeEx('ar3','3','12–15'), makeEx('ar2','2','10–12'), makeEx('ar4','3','12–15'), makeEx('ab2','3','15–20') ],
+    Sunday: [
+      e('d_bk1', 'Lat Pulldown',          'lat pulldown',           'Back', '3', '8\u201310'),
+      e('d_bk2', 'Lever Pronated Row',     'cable row',              'Back', '3', '8\u201310'),
+      e('d_bk3', 'Seated V-Bar Row',       'seated cable row',       'Back', '3', '10\u201312'),
+      e('d_bk4', 'Straight Arm Pulldown',  'straight arm pulldown',  'Back', '3', '12\u201315'),
+      e('d_ar1', 'Seated DB Curl',         'dumbbell curl',          'Arms', '3', '8\u201310'),
+      e('d_ar2', 'Cable Curl',             'cable curl',             'Arms', '3', '12\u201315'),
+      e('d_ab1', 'Ab Machine Crunch',      'crunch',                 'Abs',  '3', '15\u201320'),
+    ],
+    Monday: [
+      e('d_ch1', 'Incline DB Press',         'incline dumbbell press', 'Chest',     '3', '6\u20138'),
+      e('d_ch2', 'Flat Barbell Bench',        'barbell bench press',    'Chest',     '3', '6\u20138'),
+      e('d_ch3', 'Chest Press Machine',       'chest press',            'Chest',     '3', '10\u201312'),
+      e('d_ch4', 'Cable Fly / Pec Deck',      'cable crossover',        'Chest',     '3', '12\u201315'),
+      e('d_sh1', 'DB Lateral Raise',          'lateral raise',          'Shoulders', '3', '15'),
+      e('d_ar3', 'Tricep Pushdown',           'triceps pushdown',       'Arms',      '3', '10\u201312'),
+      e('d_ar4', 'Overhead Cable Extension',  'overhead tricep cable',  'Arms',      '3', '12\u201315'),
+    ],
+    Tuesday: [
+      e('d_lg1', 'Squat (Barbell or Smith)', 'barbell squat',     'Legs', '4', '6\u201310'),
+      e('d_lg2', 'Deadlift or RDL',          'romanian deadlift', 'Legs', '3', '6\u20138'),
+      e('d_lg3', 'Leg Press',                'leg press',         'Legs', '3', '10\u201312'),
+      e('d_lg4', 'Leg Extension',            'leg extension',     'Legs', '3', '12\u201315'),
+      e('d_lg5', 'Leg Curl',                 'leg curl',          'Legs', '3', '12\u201315'),
+      e('d_lg6', 'Calf Raises',              'calf raise',        'Legs', '4', '15\u201320'),
+      e('d_ab2', 'Ab Machine Crunch',        'crunch',            'Abs',  '3', '15\u201320'),
+    ],
+    Wednesday: [
+      e('d_sh2', 'Shoulder Press',    'barbell shoulder press', 'Shoulders', '3', '8\u201312'),
+      e('d_sh3', 'DB Lateral Raise',  'lateral raise',          'Shoulders', '4', '15\u201320'),
+      e('d_sh4', 'Rear Delt Machine', 'rear delt fly',          'Shoulders', '3', '12\u201315'),
+      e('d_sh5', 'Face Pulls',        'face pull',              'Shoulders', '3', '15\u201320'),
+    ],
+    Thursday: [
+      e('d_ch5', 'Incline DB Press',      'incline dumbbell press', 'Chest', '3', '10\u201312'),
+      e('d_ch6', 'Cable Fly',             'cable crossover',        'Chest', '3', '15'),
+      e('d_bw1', 'Pushups',              'push up',                 'Chest', '2', 'Failure'),
+      e('d_ar5', 'Preacher Curl',         'preacher curl',          'Arms',  '3', '12\u201315'),
+      e('d_ar6', 'Hammer Curl',           'hammer curl',            'Arms',  '2', '10\u201312'),
+      e('d_ar7', 'Rope Pushdown',         'triceps pushdown rope',  'Arms',  '3', '12\u201315'),
+      e('d_ab3', 'Ab Machine Crunch',     'crunch',                 'Abs',   '3', '15\u201320'),
+    ],
   };
 }
 
@@ -841,12 +879,26 @@ function updateDayUI(day) {
 // ─── IMAGE DB ─────────────────────────────────────────────────────────────────
 const IMG_BASE  = "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/";
 const DB_URL    = "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json";
-const CACHE_KEY = "exercise_img_cache_v1";
+const CACHE_KEY = "exercise_img_cache_v3"; // bumped — forces fresh fetch
 let imageMap = {};
 let dbReady  = false;
 
 const norm = s => s.toLowerCase().replace(/[^a-z0-9 ]/g,'').trim();
-const scoreMatch = (n,q) => { const d=norm(n),qn=norm(q); if(d===qn)return 100;if(d.includes(qn))return 80; const words=qn.split(' '),hit=words.filter(w=>d.includes(w)).length; return Math.round((hit/words.length)*60); };
+const scoreMatch = (n,q) => {
+  const d=norm(n), qn=norm(q);
+  if (d===qn) return 100;
+  if (d.includes(qn)) return 80;
+  const words=qn.split(' '), hit=words.filter(w=>w.length>2 && d.includes(w)).length;
+  return Math.round((hit/words.length)*60);
+};
+
+// Collect every search term from both the library AND all default plan exercises
+function getAllSearchTerms() {
+  const terms = new Set(exerciseLibrary.map(e => e.search));
+  const plan  = getDefaultPlan();
+  Object.values(plan).forEach(exs => exs.forEach(ex => terms.add(ex.search)));
+  return terms;
+}
 
 async function loadDatabase() {
   const status = document.getElementById('db-status');
@@ -857,14 +909,22 @@ async function loadDatabase() {
   try {
     status.textContent = "Fetching exercise images…";
     const exercises = await (await fetch(DB_URL)).json();
-    const terms = new Set(exerciseLibrary.map(e => e.search));
+
+    // Pre-filter: only keep exercises that actually have images
+    const withImages = exercises.filter(ex => ex.images && ex.images.length > 0);
+
+    const terms = getAllSearchTerms();
     for (const term of terms) {
       let best=null, bestS=0;
-      for (const ex of exercises) { const s=scoreMatch(ex.name,term); if(s>bestS){bestS=s;best=ex;} }
-      if (best?.images?.length) imageMap[term] = IMG_BASE + best.images[0];
+      for (const ex of withImages) {
+        const s = scoreMatch(ex.name, term);
+        if (s > bestS) { bestS=s; best=ex; }
+      }
+      // Accept any match, even weak ones — a relevant image is better than none
+      if (best) imageMap[term] = IMG_BASE + best.images[0];
     }
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(imageMap)); } catch(e) {}
-    dbReady = true; status.textContent = "Images loaded ✓";
+    dbReady = true; status.textContent = "Images loaded \u2713";
     setTimeout(() => status.classList.add('hidden'), 1200);
     refreshCurrentImages();
   } catch(e) { status.textContent = "Images unavailable"; setTimeout(() => status.classList.add('hidden'), 2500); }
