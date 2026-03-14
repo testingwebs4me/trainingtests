@@ -1335,20 +1335,51 @@ function renderLibrary() {
 function initDragSort(listEl) {
   let dragEl      = null;
   let placeholder = null;
-  let touchOffY   = 0;
+  let offsetY     = 0;
+
+  function getItems() {
+    return [...listEl.querySelectorAll('.edit-ex-item')].filter(el => el !== dragEl);
+  }
+
+  function movePlaceholder(touchY) {
+    const items = getItems();
+    let inserted = false;
+    for (const item of items) {
+      const r = item.getBoundingClientRect();
+      if (touchY < r.top + r.height / 2) {
+        listEl.insertBefore(placeholder, item);
+        inserted = true;
+        break;
+      }
+    }
+    if (!inserted) listEl.appendChild(placeholder);
+  }
+
+  function cancelDrag() {
+    if (!dragEl) return;
+    dragEl.style.cssText = '';
+    dragEl.classList.remove('is-dragging');
+    if (placeholder && placeholder.parentNode) placeholder.replaceWith(dragEl);
+    dragEl = null; placeholder = null;
+  }
 
   listEl.addEventListener('touchstart', e => {
     if (!e.target.closest('.drag-handle')) return;
-    dragEl = e.target.closest('.edit-ex-item');
-    if (!dragEl) return;
+    const target = e.target.closest('.edit-ex-item');
+    if (!target) return;
+    dragEl = target;
     const touch = e.touches[0];
     const rect  = dragEl.getBoundingClientRect();
-    touchOffY   = touch.clientY - rect.top;
+    offsetY = touch.clientY - rect.top;
+
+    // Insert placeholder in dragEl's current spot BEFORE going fixed
     placeholder = document.createElement('div');
-    placeholder.className   = 'drag-placeholder';
-    placeholder.style.height = dragEl.offsetHeight + 'px';
-    dragEl.after(placeholder);
-    dragEl.style.cssText = `position:fixed;top:${touch.clientY-touchOffY}px;left:${rect.left}px;width:${rect.width}px;z-index:9999;`;
+    placeholder.className    = 'drag-placeholder';
+    placeholder.style.height = rect.height + 'px';
+    listEl.insertBefore(placeholder, dragEl);
+
+    // Pull dragEl out of flow
+    dragEl.style.cssText = `position:fixed;top:${rect.top}px;left:${rect.left}px;width:${rect.width}px;z-index:9999;margin:0;transition:none;`;
     dragEl.classList.add('is-dragging');
     e.preventDefault();
   }, { passive: false });
@@ -1357,35 +1388,31 @@ function initDragSort(listEl) {
     if (!dragEl) return;
     e.preventDefault();
     const touch = e.touches[0];
-    dragEl.style.top = (touch.clientY - touchOffY) + 'px';
-    dragEl.style.display = 'none';
-    const el = document.elementFromPoint(touch.clientX, touch.clientY);
-    dragEl.style.display = '';
-    const closest = el?.closest('.edit-ex-item');
-    if (closest) {
-      const r = closest.getBoundingClientRect();
-      if (touch.clientY < r.top + r.height/2) listEl.insertBefore(placeholder, closest);
-      else closest.after(placeholder);
-    }
+    dragEl.style.top = (touch.clientY - offsetY) + 'px';
+    movePlaceholder(touch.clientY);
   }, { passive: false });
 
-  listEl.addEventListener('touchend', () => {
+  function endDrag() {
     if (!dragEl) return;
     dragEl.style.cssText = '';
     dragEl.classList.remove('is-dragging');
     placeholder.replaceWith(dragEl);
-    // Sync editPlanCopy order from DOM
+
+    // Read new order from DOM — spread to copy, not reference
     const newOrder = [];
     listEl.querySelectorAll('.edit-ex-item').forEach(item => {
       const idx = parseInt(item.dataset.idx);
-      if (!isNaN(idx) && editPlanCopy[idx]) newOrder.push(editPlanCopy[idx]);
+      if (!isNaN(idx) && editPlanCopy[idx]) newOrder.push({ ...editPlanCopy[idx] });
     });
     editPlanCopy.length = 0;
     newOrder.forEach(ex => editPlanCopy.push(ex));
-    // Re-render to update indices
-    renderEditList();
+
     dragEl = null; placeholder = null;
-  });
+    renderEditList();
+  }
+
+  listEl.addEventListener('touchend',    endDrag);
+  listEl.addEventListener('touchcancel', cancelDrag);
 }
 
 // ─── BOOT ─────────────────────────────────────────────────────────────────────
