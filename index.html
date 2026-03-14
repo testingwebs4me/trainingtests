@@ -367,6 +367,47 @@
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #222; border-radius: 2px; }
+
+  /* ─── PROGRESS PAGE TABS ─────────────────────────────────────── */
+  .prog-tabs { display: flex; gap: 6px; margin-bottom: 24px; }
+  .prog-tab { flex: 1; text-align: center; font-family: "DM Sans", sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 10px 0; border-radius: 10px; border: 1px solid var(--border); background: var(--card); color: var(--muted); cursor: pointer; transition: all 0.2s; touch-action: manipulation; }
+  .prog-tab.active { background: rgba(232,255,71,0.08); border-color: var(--accent); color: var(--accent); }
+
+  /* ─── WEEK STATS CHIPS ───────────────────────────────────────── */
+  .week-stats-row { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+  .week-stat { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; flex: 1; min-width: 80px; }
+  .week-stat-val { font-family: "Bebas Neue", sans-serif; font-size: 28px; color: var(--accent); letter-spacing: 0.04em; line-height: 1; }
+  .week-stat-lbl { font-size: 10px; color: var(--muted); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin-top: 4px; }
+
+  /* ─── WEEK BAR CHART ─────────────────────────────────────────── */
+  .week-chart-wrap { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px 16px 12px; margin-bottom: 20px; }
+  .week-chart-title { font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); margin-bottom: 16px; }
+  .week-chart-svg { width: 100%; display: block; overflow: visible; }
+  .week-chart-bar { fill: #1e2400; transition: fill 0.2s; }
+  .week-chart-bar.full { fill: var(--accent); }
+  .week-chart-bar.partial { fill: rgba(232,255,71,0.35); }
+  .week-chart-label { font-family: "DM Sans", sans-serif; font-size: 9px; fill: var(--muted); text-anchor: middle; }
+  .week-chart-pct { font-family: "Bebas Neue", sans-serif; font-size: 11px; fill: var(--accent); text-anchor: middle; }
+
+  /* ─── WEEK HISTORY TABLE ─────────────────────────────────────── */
+  .week-history-wrap { background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  .week-history-table { width: 100%; border-collapse: collapse; }
+  .week-history-table th { text-align: left; padding: 11px 14px; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); background: #0d0d0d; border-bottom: 1px solid var(--border); }
+  .week-history-table td { padding: 11px 14px; font-size: 13px; border-bottom: 1px solid #141414; vertical-align: middle; }
+  .week-history-table tr:last-child td { border-bottom: none; }
+  .week-history-table tr:hover td { background: #121212; }
+  .wh-week { font-size: 11px; color: var(--muted); }
+  .wh-score { font-family: "Bebas Neue", sans-serif; font-size: 20px; letter-spacing: 0.04em; }
+  .wh-score.perfect { color: var(--accent); }
+  .wh-score.good { color: var(--accent-dim); }
+  .wh-score.low { color: var(--muted); }
+  .wh-days { display: flex; gap: 3px; flex-wrap: wrap; }
+  .wh-day-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .wh-day-dot.done { background: var(--accent); }
+  .wh-day-dot.skipped { background: #222; }
+  .wh-badge-perfect { display: inline-flex; align-items: center; background: rgba(232,255,71,0.1); border: 1px solid rgba(232,255,71,0.25); border-radius: 4px; padding: 2px 6px; font-size: 9px; font-weight: 700; letter-spacing: 0.1em; color: var(--accent); margin-left: 6px; }
+
+  .prog-loading { text-align: center; padding: 40px; color: var(--muted); font-size: 12px; letter-spacing: 0.1em; }
 </style>
 </head>
 <body>
@@ -440,7 +481,7 @@
     <div class="days-grid" id="daysGrid"></div>
     <div class="week-progress">
       <div class="progress-label">
-        <span>Week Progress</span>
+        <span id="progressWeekLabel">This Week</span>
         <strong id="progressText">0 / 5</strong>
       </div>
       <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
@@ -465,7 +506,6 @@
       </div>
     </nav>
     <div class="prog-title">MY <span>PROGRESS</span></div>
-    <p class="prog-subtitle" id="progSubtitle"></p>
     <div class="prog-filter" id="progFilter"></div>
     <div id="progContent"></div>
   </div>
@@ -679,12 +719,13 @@ let userWeightLogs = [];
 let userPlan       = null;
 let currentDay     = null;
 let tracking       = {};
+let weekHistory    = [];   // array of saved week docs from Firestore
 let editingDay     = null;
 let editPlanCopy   = [];
 let activeCatTab   = null;
 
 const SESSION_KEY = 'training_user_v2';
-const TRACK_KEY   = 'training_track_v3';
+const TRACK_KEY   = 'training_track_v4';  // bumped — fresh start for new week system
 
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
 function initAuth() {
@@ -781,7 +822,7 @@ function showApp() {
 
 // ─── FIRESTORE ────────────────────────────────────────────────────────────────
 async function loadAllUserData() {
-  await Promise.all([loadWeightLogs(), loadUserPlan()]);
+  await Promise.all([loadWeightLogs(), loadUserPlan(), loadWeekHistory()]);
 }
 
 async function loadWeightLogs() {
@@ -804,6 +845,39 @@ async function saveUserPlan() {
   try { await setDoc(doc(db,'userPlans', currentUser.id), userPlan); } catch(e) { console.error('Save plan failed:', e); }
 }
 
+async function loadWeekHistory() {
+  try {
+    const q    = query(collection(db,'weekLogs'), where('userId','==',currentUser.id));
+    const snap = await getDocs(q);
+    weekHistory = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    weekHistory.sort((a,b) => (b.weekStart > a.weekStart ? 1 : -1));
+  } catch(e) { weekHistory = []; }
+}
+
+async function archiveCurrentWeek(wid, completedMap) {
+  const trainingDays = days.filter(d => !dayMeta[d].rest);
+  const completedCount = trainingDays.filter(d => completedMap[d]).length;
+  const entry = {
+    userId: currentUser.id,
+    userName: currentUser.name,
+    weekId: wid,
+    weekStart: wid,
+    completed: { ...completedMap },
+    completedCount,
+    totalTrainingDays: trainingDays.length,
+    archivedAt: serverTimestamp(),
+  };
+  const docId = `${currentUser.id}_${wid}`;
+  try {
+    await setDoc(doc(db,'weekLogs', docId), entry);
+    // Add to local history if not already there — strip serverTimestamp sentinel
+    if (!weekHistory.find(w => w.weekId === wid)) {
+      weekHistory.unshift({ ...entry, id: docId, archivedAt: null });
+      weekHistory.sort((a,b) => (b.weekStart > a.weekStart ? 1 : -1));
+    }
+  } catch(e) { console.error('Archive week failed:', e); }
+}
+
 function getLastWeight(exerciseName) {
   const log = userWeightLogs.find(l => l.exerciseName === exerciseName);
   return log ? log.weight : null;
@@ -816,17 +890,46 @@ async function logWeight(exerciseName, day, weight) {
 }
 
 // ─── TRACKING ─────────────────────────────────────────────────────────────────
+// Week ID = "YYYY-MM-DD" of the most recent Sunday — resets every Sunday
 function getWeekId() {
-  const now = new Date(), start = new Date(now.getFullYear(),0,1);
-  return `${now.getFullYear()}-W${Math.ceil(((now-start)/86400000+start.getDay()+1)/7)}`;
+  const now  = new Date();
+  const sun  = new Date(now);
+  sun.setDate(now.getDate() - now.getDay()); // go back to Sunday (local)
+  // Use local date — avoids UTC offset issues for UTC+3 (Saudi Arabia)
+  const y = sun.getFullYear();
+  const m = String(sun.getMonth() + 1).padStart(2, '0');
+  const d = String(sun.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
-function loadTracking() {
+
+// Human-readable label e.g. "8 Mar"
+function weekLabel(wid) {
+  const [y, m, d] = wid.split('-').map(Number);
+  const date = new Date(y, m - 1, d); // local, no UTC offset
+  return date.toLocaleDateString('en-GB', { day:'numeric', month:'short' });
+}
+
+async function loadTracking() {
+  const lsKey = `${TRACK_KEY}_${currentUser.id}`;
+  const currentWid = getWeekId();
+  let stored = null;
   try {
-    const raw = localStorage.getItem(`${TRACK_KEY}_${currentUser.id}`);
-    if (raw) { const d = JSON.parse(raw); if (d.week === getWeekId()) return d; }
+    const raw = localStorage.getItem(lsKey);
+    if (raw) stored = JSON.parse(raw);
   } catch(e) {}
-  return { week: getWeekId(), completed:{}, exercises:{} };
+
+  if (stored && stored.week !== currentWid) {
+    // New week — archive the old one to Firestore, then reset
+    await archiveCurrentWeek(stored.week, stored.completed || {});
+    stored = null;
+  }
+
+  if (!stored || stored.week !== currentWid) {
+    stored = { week: currentWid, completed:{}, exercises:{} };
+  }
+  return stored;
 }
+
 function saveTracking() {
   try { localStorage.setItem(`${TRACK_KEY}_${currentUser.id}`, JSON.stringify(tracking)); } catch(e) {}
 }
@@ -957,9 +1060,18 @@ function updateProgress() {
   document.getElementById('progressText').textContent = `${done} / ${td.length}`;
   document.getElementById('progressFill').style.width = `${(done/td.length)*100}%`;
   document.querySelectorAll('.day-btn').forEach(b => b.classList.toggle('completed', isDayCompleted(b.dataset.day)));
+  // Show week date range
+  const wid = getWeekId();
+  const sun = new Date(wid + 'T00:00:00');
+  const sat = new Date(sun); sat.setDate(sun.getDate() + 6);
+  const fmt = d => d.toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+  const lbl = document.getElementById('progressWeekLabel');
+  if (lbl) lbl.textContent = `${fmt(sun)} – ${fmt(sat)}`;
 }
 
 // ─── PROGRESS PAGE ────────────────────────────────────────────────────────────
+let progActiveTab = 'weekly'; // default tab
+
 document.getElementById('goProgressBtn').addEventListener('click', () => {
   document.getElementById('app').style.display = 'none';
   const pg = document.getElementById('progressPage');
@@ -967,8 +1079,7 @@ document.getElementById('goProgressBtn').addEventListener('click', () => {
   requestAnimationFrame(() => { pg.style.opacity='1'; pg.style.transform='translateY(0)'; });
   document.getElementById('progAvatar').textContent   = currentUser.initials;
   document.getElementById('progUserName').textContent = currentUser.name;
-  document.getElementById('progSubtitle').textContent = `${userWeightLogs.length} weight log${userWeightLogs.length!==1?'s':''} recorded`;
-  renderProgress('ALL');
+  renderProgPage(progActiveTab);
 });
 
 document.getElementById('backToAppBtn').addEventListener('click', () => {
@@ -976,40 +1087,190 @@ document.getElementById('backToAppBtn').addEventListener('click', () => {
   document.getElementById('app').style.display = 'block';
 });
 
-function renderProgress(filter) {
-  const allExNames = [...new Set(userWeightLogs.map(l => l.exerciseName))];
+function renderProgPage(tab) {
+  progActiveTab = tab;
+  // Render tabs
   const fc = document.getElementById('progFilter');
   fc.innerHTML = '';
-  ['ALL', ...allExNames].forEach(f => {
+  const tabs = [{ id:'weekly', label:'📅 Weekly' }, { id:'weights', label:'🏋️ Weights' }];
+  const tabsEl = document.createElement('div');
+  tabsEl.className = 'prog-tabs';
+  tabs.forEach(t => {
     const btn = document.createElement('button');
-    btn.className = 'prog-filter-btn' + (f===filter?' active':'');
-    btn.textContent = f==='ALL' ? 'All Exercises' : f;
-    btn.addEventListener('click', () => renderProgress(f));
-    fc.appendChild(btn);
+    btn.className = 'prog-tab' + (t.id===tab?' active':'');
+    btn.textContent = t.label;
+    btn.addEventListener('click', () => renderProgPage(t.id));
+    tabsEl.appendChild(btn);
   });
-  const logs = filter==='ALL' ? [...userWeightLogs] : userWeightLogs.filter(l => l.exerciseName===filter);
-  const content = document.getElementById('progContent');
-  if (!logs.length) {
-    content.innerHTML = `<div class="prog-table-wrap"><div class="prog-empty"><span class="prog-empty-icon">📊</span><div class="prog-empty-title">NO DATA YET</div><p class="prog-empty-sub">Log your first weight to start tracking</p></div></div>`;
-    return;
-  }
-  const prMap = {};
-  userWeightLogs.forEach(l => { if (!prMap[l.exerciseName]||l.weight>prMap[l.exerciseName]) prMap[l.exerciseName]=l.weight; });
-  content.innerHTML = `<div class="prog-table-wrap"><table class="prog-table"><thead><tr><th>Date</th><th>Exercise</th><th>Day</th><th>Weight</th></tr></thead><tbody id="progTbody"></tbody></table></div>`;
-  const tbody = document.getElementById('progTbody');
-  logs.forEach(log => {
-    const d   = log.date?.seconds ? new Date(log.date.seconds*1000) : new Date();
-    const ds  = d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'2-digit'});
-    const isPR = log.weight === prMap[log.exerciseName];
-    const tr  = document.createElement('tr');
-    tr.innerHTML = `<td class="prog-date-cell">${ds}</td><td>${log.exerciseName}${isPR?'<span class="pr-badge">PR</span>':''}</td><td><span class="prog-day-pill">${log.day||'—'}</span></td><td class="prog-weight-cell">${log.weight}<span style="font-family:'DM Sans',sans-serif;font-size:11px;color:var(--muted);margin-left:2px;">kg</span></td>`;
-    tbody.appendChild(tr);
-  });
+  fc.appendChild(tabsEl);
+
+  if (tab === 'weekly') renderWeeklyTab();
+  else renderWeightsTab('ALL');
 }
 
+// ── WEEKLY TAB ────────────────────────────────────────────────────────────────
+function renderWeeklyTab() {
+  const content = document.getElementById('progContent');
+  const trainingDays = days.filter(d => !dayMeta[d].rest); // Sun–Thu
+
+  // Build full history = archived weeks + current week
+  const currentWid = getWeekId();
+  const currentEntry = {
+    weekId: currentWid,
+    weekStart: currentWid,
+    completed: { ...(tracking.completed || {}) },
+    completedCount: trainingDays.filter(d => tracking.completed?.[d]).length,
+    totalTrainingDays: trainingDays.length,
+    isCurrent: true,
+  };
+
+  // Merge: avoid duplicate for current week
+  const allWeeks = [currentEntry, ...weekHistory.filter(w => w.weekId !== currentWid)];
+  allWeeks.sort((a,b) => b.weekStart > a.weekStart ? 1 : -1); // newest first for table
+
+  // ── STATS ────────────────────────────────────────────────────────────────────
+  const totalSessions = allWeeks.reduce((s,w) => s + (w.completedCount||0), 0);
+  const bestWeek      = allWeeks.reduce((best,w) => Math.max(best, w.completedCount||0), 0);
+
+  // Streak = consecutive perfect weeks from most recent PAST week (skip current in-progress)
+  let streak = 0;
+  const sortedPast = [...allWeeks]
+    .filter(w => !w.isCurrent)
+    .sort((a,b) => b.weekStart > a.weekStart ? 1 : -1);
+  for (const w of sortedPast) {
+    if ((w.completedCount||0) === (w.totalTrainingDays||5)) streak++;
+    else break;
+  }
+
+  const totalSkips = allWeeks.reduce((s,w) => s + ((w.totalTrainingDays||5) - (w.completedCount||0)), 0);
+
+  // ── RENDER ───────────────────────────────────────────────────────────────────
+  let html = '';
+
+  // Stats chips
+  html += `<div class="week-stats-row">
+    <div class="week-stat"><div class="week-stat-val">${streak}</div><div class="week-stat-lbl">🔥 Streak</div></div>
+    <div class="week-stat"><div class="week-stat-val">${totalSessions}</div><div class="week-stat-lbl">Sessions</div></div>
+    <div class="week-stat"><div class="week-stat-val">${bestWeek}/${trainingDays.length}</div><div class="week-stat-lbl">Best Week</div></div>
+    <div class="week-stat"><div class="week-stat-val">${totalSkips}</div><div class="week-stat-lbl">Total Skips</div></div>
+  </div>`;
+
+  // Bar chart — last 10 weeks, oldest→newest (left→right)
+  const chartWeeks = [...allWeeks].sort((a,b) => a.weekStart > b.weekStart ? 1 : -1).slice(-10);
+  const TOTAL = trainingDays.length;
+  const BAR_W = 28, BAR_GAP = 8, CHART_H = 80, LABEL_H = 28;
+  const totalW = chartWeeks.length * (BAR_W + BAR_GAP) - BAR_GAP;
+
+  let bars = '';
+  chartWeeks.forEach((w, i) => {
+    const pct   = (w.completedCount||0) / TOTAL;
+    const barH  = Math.max(4, Math.round(pct * CHART_H));
+    const x     = i * (BAR_W + BAR_GAP);
+    const y     = CHART_H - barH;
+    const cls   = pct === 1 ? 'full' : pct > 0 ? 'partial' : '';
+    const label = weekLabel(w.weekStart);
+    const pctTxt = pct > 0 ? `${w.completedCount}/${TOTAL}` : '';
+    bars += `<rect class="week-chart-bar ${cls}" x="${x}" y="${y}" width="${BAR_W}" height="${barH}" rx="4"/>`;
+    if (pct > 0) bars += `<text class="week-chart-pct" x="${x+BAR_W/2}" y="${y-4}">${pctTxt}</text>`;
+    bars += `<text class="week-chart-label" x="${x+BAR_W/2}" y="${CHART_H+16}">${label}</text>`;
+    if (w.isCurrent) bars += `<rect x="${x}" y="${CHART_H+22}" width="${BAR_W}" height="3" rx="1.5" fill="var(--accent)" opacity="0.5"/>`;
+  });
+
+  if (chartWeeks.length > 0) {
+    html += `<div class="week-chart-wrap">
+      <div class="week-chart-title">Last ${chartWeeks.length} Weeks</div>
+      <svg class="week-chart-svg" viewBox="-4 -12 ${totalW+8} ${CHART_H+LABEL_H+8}" preserveAspectRatio="xMidYMid meet">
+        ${bars}
+      </svg>
+    </div>`;
+  }
+
+  // Week history table — show empty state only if no sessions ever logged
+  const hasAnySessions = allWeeks.some(w => (w.completedCount||0) > 0);
+  if (!hasAnySessions) {
+    html += `<div class="prog-table-wrap"><div class="prog-empty"><span class="prog-empty-icon">📅</span><div class="prog-empty-title">NO SESSIONS YET</div><p class="prog-empty-sub">Complete your first training day to start tracking</p></div></div>`;
+  } else {
+    html += `<div class="week-history-wrap"><table class="week-history-table">
+      <thead><tr><th>Week</th><th>Progress</th><th>Days</th></tr></thead><tbody>`;
+    allWeeks.forEach(w => {
+      const cnt  = w.completedCount || 0;
+      const tot  = w.totalTrainingDays || TOTAL;
+      const cls  = cnt === tot ? 'perfect' : cnt >= 3 ? 'good' : 'low';
+      const badge = cnt === tot ? '<span class="wh-badge-perfect">PERFECT</span>' : '';
+      const label = w.isCurrent ? `${weekLabel(w.weekStart)} <span style="font-size:9px;color:var(--accent);font-weight:700;letter-spacing:.06em;">NOW</span>` : weekLabel(w.weekStart);
+      // Day dots
+      let dots = '';
+      trainingDays.forEach(d => {
+        const done = w.completed?.[d] === true;
+        dots += `<div class="wh-day-dot ${done?'done':'skipped'}" title="${d}"></div>`;
+      });
+      html += `<tr>
+        <td class="wh-week">${label}</td>
+        <td><span class="wh-score ${cls}">${cnt}/${tot}</span>${badge}</td>
+        <td><div class="wh-days">${dots}</div></td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+  }
+
+  content.innerHTML = html;
+}
+
+// ── WEIGHTS TAB ───────────────────────────────────────────────────────────────
+function renderWeightsTab(filter) {
+  const content = document.getElementById('progContent');
+
+  // Filter pills — DOM-based to handle apostrophes in exercise names
+  const allExNames = [...new Set(userWeightLogs.map(l => l.exerciseName))];
+  const filterWrap = document.createElement('div');
+  filterWrap.className = 'prog-filter';
+  filterWrap.style.marginBottom = '16px';
+  ['ALL', ...allExNames].forEach(f => {
+    const btn = document.createElement('button');
+    btn.className = 'prog-filter-btn' + (f === filter ? ' active' : '');
+    btn.textContent = f === 'ALL' ? 'All Exercises' : f;
+    btn.addEventListener('click', () => renderWeightsTab(f));
+    filterWrap.appendChild(btn);
+  });
+
+  const logs = filter === 'ALL' ? [...userWeightLogs] : userWeightLogs.filter(l => l.exerciseName === filter);
+
+  content.innerHTML = '';
+  content.appendChild(filterWrap);
+
+  if (!logs.length) {
+    const empty = document.createElement('div');
+    empty.className = 'prog-table-wrap';
+    empty.innerHTML = `<div class="prog-empty"><span class="prog-empty-icon">\u{1F4CA}</span><div class="prog-empty-title">NO DATA YET</div><p class="prog-empty-sub">Log your first weight to start tracking</p></div>`;
+    content.appendChild(empty);
+    return;
+  }
+
+  const prMap = {};
+  userWeightLogs.forEach(l => { if (!prMap[l.exerciseName] || l.weight > prMap[l.exerciseName]) prMap[l.exerciseName] = l.weight; });
+
+  const tableWrap = document.createElement('div');
+  tableWrap.className = 'prog-table-wrap';
+  let rows = '';
+  logs.forEach(log => {
+    const d   = log.date?.seconds ? new Date(log.date.seconds * 1000) : new Date();
+    const ds  = d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'2-digit' });
+    const isPR = log.weight === prMap[log.exerciseName];
+    rows += `<tr>
+      <td class="prog-date-cell">${ds}</td>
+      <td>${log.exerciseName}${isPR ? '<span class="pr-badge">PR</span>' : ''}</td>
+      <td><span class="prog-day-pill">${log.day || '—'}</span></td>
+      <td class="prog-weight-cell">${log.weight}<span style="font-family:'DM Sans',sans-serif;font-size:11px;color:var(--muted);margin-left:2px;">kg</span></td>
+    </tr>`;
+  });
+  tableWrap.innerHTML = `<table class="prog-table"><thead><tr><th>Date</th><th>Exercise</th><th>Day</th><th>Weight</th></tr></thead><tbody>${rows}</tbody></table>`;
+  content.appendChild(tableWrap);
+}
+
+
 // ─── INIT APP ─────────────────────────────────────────────────────────────────
-function initApp() {
-  tracking = loadTracking();
+async function initApp() {
+  tracking = await loadTracking();
   const todayIdx  = new Date().getDay();
   const todayName = days[todayIdx];
   document.getElementById('todayLabel').textContent = todayName.toUpperCase();
@@ -1333,10 +1594,8 @@ function renderLibrary() {
 
 // ─── DRAG TO REORDER ─────────────────────────────────────────────────────────
 function initDragSort(listEl) {
-  let dragEl    = null;
-  let startY    = 0;
-  let offsetY   = 0;  // finger Y relative to top of dragEl
-  let lastIndex = -1;
+  let dragEl  = null;
+  let offsetY = 0;  // finger Y relative to top of dragEl
 
   function getItems() {
     return [...listEl.querySelectorAll('.edit-ex-item')];
