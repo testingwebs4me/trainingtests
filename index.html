@@ -822,7 +822,7 @@ function showApp() {
 
 // ─── FIRESTORE ────────────────────────────────────────────────────────────────
 async function loadAllUserData() {
-  await Promise.all([loadWeightLogs(), loadUserPlan(), loadWeekHistory()]);
+  await Promise.all([loadWeightLogs(), loadUserPlan(), loadWeekHistory(), loadWeekTracking()]);
 }
 
 async function loadWeightLogs() {
@@ -854,9 +854,44 @@ async function loadWeekHistory() {
   } catch(e) { weekHistory = []; }
 }
 
-async function archiveCurrentWeek(wid, completedMap) {
+// Load current week tracking from Firestore — this is the live sync
+async function loadWeekTracking() {
+  const currentWid = getWeekId();
+  const docId = `${currentUser.id}_${currentWid}`;
+  try {
+    const snap = await getDoc(doc(db, 'weekTracking', docId));
+    if (snap.exists()) {
+      const data = snap.data();
+      // Firestore has the most up-to-date data — use it
+      tracking = { week: currentWid, completed: data.completed || {}, exercises: data.exercises || {} };
+      // Mirror to localStorage as offline cache
+      try { localStorage.setItem(`${TRACK_KEY}_${currentUser.id}`, JSON.stringify(tracking)); } catch(e) {}
+      return;
+    }
+  } catch(e) { console.warn('Could not load weekTracking from Firestore:', e); }
+  // Firestore unavailable — fall back to localStorage cache
+  try {
+    const raw = localStorage.getItem(`${TRACK_KEY}_${currentUser.id}`);
+    if (raw) {
+      const stored = JSON.parse(raw);
+      if (stored.week === currentWid) { tracking = stored; return; }
+    }
+  } catch(e) {}
+  tracking = { week: currentWid, completed: {}, exercises: {} };
+}
+
+// Archive a past week into weekLogs, then delete its weekTracking doc
+async function archiveWeek(wid) {
   const trainingDays = days.filter(d => !dayMeta[d].rest);
+  const trackDocId   = `${currentUser.id}_${wid}`;
+  let completedMap   = {};
+  // Read the tracking doc for that week
+  try {
+    const snap = await getDoc(doc(db, 'weekTracking', trackDocId));
+    if (snap.exists()) completedMap = snap.data().completed || {};
+  } catch(e) {}
   const completedCount = trainingDays.filter(d => completedMap[d]).length;
+  const logDocId = `${currentUser.id}_${wid}`;
   const entry = {
     userId: currentUser.id,
     userName: currentUser.name,
@@ -867,12 +902,12 @@ async function archiveCurrentWeek(wid, completedMap) {
     totalTrainingDays: trainingDays.length,
     archivedAt: serverTimestamp(),
   };
-  const docId = `${currentUser.id}_${wid}`;
   try {
-    await setDoc(doc(db,'weekLogs', docId), entry);
-    // Add to local history if not already there — strip serverTimestamp sentinel
+    // Write to weekLogs (permanent history)
+    await setDoc(doc(db, 'weekLogs', logDocId), entry);
+    // Add to local weekHistory
     if (!weekHistory.find(w => w.weekId === wid)) {
-      weekHistory.unshift({ ...entry, id: docId, archivedAt: null });
+      weekHistory.unshift({ ...entry, id: logDocId, archivedAt: null });
       weekHistory.sort((a,b) => (b.weekStart > a.weekStart ? 1 : -1));
     }
   } catch(e) { console.error('Archive week failed:', e); }
@@ -895,7 +930,6 @@ function getWeekId() {
   const now  = new Date();
   const sun  = new Date(now);
   sun.setDate(now.getDate() - now.getDay()); // go back to Sunday (local)
-  // Use local date — avoids UTC offset issues for UTC+3 (Saudi Arabia)
   const y = sun.getFullYear();
   const m = String(sun.getMonth() + 1).padStart(2, '0');
   const d = String(sun.getDate()).padStart(2, '0');
@@ -905,33 +939,52 @@ function getWeekId() {
 // Human-readable label e.g. "8 Mar"
 function weekLabel(wid) {
   const [y, m, d] = wid.split('-').map(Number);
-  const date = new Date(y, m - 1, d); // local, no UTC offset
+  const date = new Date(y, m - 1, d);
   return date.toLocaleDateString('en-GB', { day:'numeric', month:'short' });
 }
 
+// Called on app init — check if week rolled over, archive if needed
 async function loadTracking() {
-  const lsKey = `${TRACK_KEY}_${currentUser.id}`;
   const currentWid = getWeekId();
-  let stored = null;
+  // Check if there are past week tracking docs that haven't been archived
   try {
-    const raw = localStorage.getItem(lsKey);
-    if (raw) stored = JSON.parse(raw);
-  } catch(e) {}
-
-  if (stored && stored.week !== currentWid) {
-    // New week — archive the old one to Firestore, then reset
-    await archiveCurrentWeek(stored.week, stored.completed || {});
-    stored = null;
-  }
-
-  if (!stored || stored.week !== currentWid) {
-    stored = { week: currentWid, completed:{}, exercises:{} };
-  }
-  return stored;
+    const q    = query(collection(db,'weekTracking'), where('userId','==',currentUser.id));
+    const snap = await getDocs(q);
+    for (const d of snap.docs) {
+      const data = d.data();
+      if (data.weekId && data.weekId !== currentWid) {
+        // This is a past week that hasn't been archived yet — archive it now
+        await archiveWeek(data.weekId);
+        // Delete the old weekTracking doc to keep it clean
+        try { await setDoc(doc(db,'weekTracking',d.id), { ...data, archived: true }); } catch(e) {}
+      }
+    }
+  } catch(e) { console.warn('Week rollover check failed:', e); }
+  // tracking is already loaded by loadWeekTracking() — just return it
+  return tracking;
 }
 
+// Debounced Firestore save — prevents hammering on every tap
+let saveTrackingTimer = null;
 function saveTracking() {
+  // Always save to localStorage instantly (offline cache)
   try { localStorage.setItem(`${TRACK_KEY}_${currentUser.id}`, JSON.stringify(tracking)); } catch(e) {}
+  // Debounce Firestore write — 800ms after last change
+  clearTimeout(saveTrackingTimer);
+  saveTrackingTimer = setTimeout(async () => {
+    const currentWid = getWeekId();
+    const docId = `${currentUser.id}_${currentWid}`;
+    try {
+      await setDoc(doc(db, 'weekTracking', docId), {
+        userId:    currentUser.id,
+        userName:  currentUser.name,
+        weekId:    currentWid,
+        completed: tracking.completed,
+        exercises: tracking.exercises,
+        updatedAt: serverTimestamp(),
+      });
+    } catch(e) { console.warn('Could not sync tracking to Firestore:', e); }
+  }, 800);
 }
 
 function isExChecked(day, exId) { return tracking.exercises?.[`${day}-${exId}`] === true; }
@@ -1270,7 +1323,7 @@ function renderWeightsTab(filter) {
 
 // ─── INIT APP ─────────────────────────────────────────────────────────────────
 async function initApp() {
-  tracking = await loadTracking();
+  await loadTracking(); // handles week rollover + archiving past weeks
   const todayIdx  = new Date().getDay();
   const todayName = days[todayIdx];
   document.getElementById('todayLabel').textContent = todayName.toUpperCase();
