@@ -1337,8 +1337,9 @@ function initDragSort(listEl) {
   let placeholder = null;
   let offsetY     = 0;
 
+  // All items currently in the list (placeholder is not .edit-ex-item so it is safe to query)
   function getItems() {
-    return [...listEl.querySelectorAll('.edit-ex-item')].filter(el => el !== dragEl);
+    return [...listEl.querySelectorAll('.edit-ex-item')];
   }
 
   function movePlaceholder(touchY) {
@@ -1357,9 +1358,11 @@ function initDragSort(listEl) {
 
   function cancelDrag() {
     if (!dragEl) return;
+    // Put dragEl back where placeholder is, clean up
+    if (placeholder && placeholder.parentNode) placeholder.replaceWith(dragEl);
+    else if (dragEl.parentNode !== listEl) listEl.appendChild(dragEl);
     dragEl.style.cssText = '';
     dragEl.classList.remove('is-dragging');
-    if (placeholder && placeholder.parentNode) placeholder.replaceWith(dragEl);
     dragEl = null; placeholder = null;
   }
 
@@ -1372,13 +1375,14 @@ function initDragSort(listEl) {
     const rect  = dragEl.getBoundingClientRect();
     offsetY = touch.clientY - rect.top;
 
-    // Insert placeholder in dragEl's current spot BEFORE going fixed
+    // ── KEY FIX: swap dragEl OUT of the list, put placeholder IN its exact spot ──
     placeholder = document.createElement('div');
     placeholder.className    = 'drag-placeholder';
     placeholder.style.height = rect.height + 'px';
-    listEl.insertBefore(placeholder, dragEl);
+    dragEl.replaceWith(placeholder);          // dragEl fully leaves the list DOM
+    document.body.appendChild(dragEl);        // attach to body so it stays reachable
 
-    // Pull dragEl out of flow
+    // Float it at the same position it was
     dragEl.style.cssText = `position:fixed;top:${rect.top}px;left:${rect.left}px;width:${rect.width}px;z-index:9999;margin:0;transition:none;`;
     dragEl.classList.add('is-dragging');
     e.preventDefault();
@@ -1394,11 +1398,14 @@ function initDragSort(listEl) {
 
   function endDrag() {
     if (!dragEl) return;
+
+    // Drop dragEl exactly where placeholder is
     dragEl.style.cssText = '';
     dragEl.classList.remove('is-dragging');
-    placeholder.replaceWith(dragEl);
+    placeholder.replaceWith(dragEl);          // dragEl back in the list at correct spot
+    placeholder = null;
 
-    // Read new order from DOM — spread to copy, not reference
+    // NOW read the DOM order — dragEl is in the right position, indices are stale but present
     const newOrder = [];
     listEl.querySelectorAll('.edit-ex-item').forEach(item => {
       const idx = parseInt(item.dataset.idx);
@@ -1407,7 +1414,7 @@ function initDragSort(listEl) {
     editPlanCopy.length = 0;
     newOrder.forEach(ex => editPlanCopy.push(ex));
 
-    dragEl = null; placeholder = null;
+    dragEl = null;
     renderEditList();
   }
 
