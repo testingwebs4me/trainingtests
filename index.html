@@ -299,7 +299,7 @@
   .edit-ex-list { display: flex; flex-direction: column; gap: 6px; min-height: 50px; }
 
   .edit-ex-item { display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 10px; user-select: none; }
-  .edit-ex-item.is-dragging { box-shadow: 0 10px 40px rgba(0,0,0,0.6); border-color: var(--accent); opacity: 0.95; }
+  .edit-ex-item.is-dragging { box-shadow: 0 8px 32px rgba(0,0,0,0.7); border-color: var(--accent); opacity: 0.92; transform: scale(1.02); z-index: 10; position: relative; }
 
   .drag-placeholder { background: #0d0d0d; border: 1.5px dashed #252525; border-radius: 10px; }
 
@@ -1333,57 +1333,38 @@ function renderLibrary() {
 
 // ─── DRAG TO REORDER ─────────────────────────────────────────────────────────
 function initDragSort(listEl) {
-  let dragEl      = null;
-  let placeholder = null;
-  let offsetY     = 0;
+  let dragEl    = null;
+  let startY    = 0;
+  let offsetY   = 0;  // finger Y relative to top of dragEl
+  let lastIndex = -1;
 
-  // All items currently in the list (placeholder is not .edit-ex-item so it is safe to query)
   function getItems() {
     return [...listEl.querySelectorAll('.edit-ex-item')];
   }
 
-  function movePlaceholder(touchY) {
-    const items = getItems();
-    let inserted = false;
+  // Find which slot the finger is hovering — return the item we should insert BEFORE
+  function targetSlot(touchY) {
+    const items = getItems().filter(el => el !== dragEl);
     for (const item of items) {
       const r = item.getBoundingClientRect();
-      if (touchY < r.top + r.height / 2) {
-        listEl.insertBefore(placeholder, item);
-        inserted = true;
-        break;
-      }
+      if (touchY < r.top + r.height / 2) return { before: item };
     }
-    if (!inserted) listEl.appendChild(placeholder);
-  }
-
-  function cancelDrag() {
-    if (!dragEl) return;
-    // Put dragEl back where placeholder is, clean up
-    if (placeholder && placeholder.parentNode) placeholder.replaceWith(dragEl);
-    else if (dragEl.parentNode !== listEl) listEl.appendChild(dragEl);
-    dragEl.style.cssText = '';
-    dragEl.classList.remove('is-dragging');
-    dragEl = null; placeholder = null;
+    return { before: null }; // append at end
   }
 
   listEl.addEventListener('touchstart', e => {
+    if (dragEl) return;                              // already dragging
     if (!e.target.closest('.drag-handle')) return;
     const target = e.target.closest('.edit-ex-item');
     if (!target) return;
-    dragEl = target;
+
+    dragEl  = target;
     const touch = e.touches[0];
     const rect  = dragEl.getBoundingClientRect();
+    startY  = touch.clientY;
     offsetY = touch.clientY - rect.top;
+    lastIndex = getItems().indexOf(dragEl);
 
-    // ── KEY FIX: swap dragEl OUT of the list, put placeholder IN its exact spot ──
-    placeholder = document.createElement('div');
-    placeholder.className    = 'drag-placeholder';
-    placeholder.style.height = rect.height + 'px';
-    dragEl.replaceWith(placeholder);          // dragEl fully leaves the list DOM
-    document.body.appendChild(dragEl);        // attach to body so it stays reachable
-
-    // Float it at the same position it was
-    dragEl.style.cssText = `position:fixed;top:${rect.top}px;left:${rect.left}px;width:${rect.width}px;z-index:9999;margin:0;transition:none;`;
     dragEl.classList.add('is-dragging');
     e.preventDefault();
   }, { passive: false });
@@ -1391,29 +1372,38 @@ function initDragSort(listEl) {
   listEl.addEventListener('touchmove', e => {
     if (!dragEl) return;
     e.preventDefault();
-    const touch = e.touches[0];
-    dragEl.style.top = (touch.clientY - offsetY) + 'px';
-    movePlaceholder(touch.clientY);
+    const touch  = e.touches[0];
+    const touchY = touch.clientY;
+
+    // Reorder in the list by moving dragEl to the right slot
+    const { before } = targetSlot(touchY);
+    if (before) {
+      if (dragEl.nextSibling !== before) listEl.insertBefore(dragEl, before);
+    } else {
+      if (listEl.lastElementChild !== dragEl) listEl.appendChild(dragEl);
+    }
   }, { passive: false });
 
   function endDrag() {
     if (!dragEl) return;
-
-    // Drop dragEl exactly where placeholder is
-    dragEl.style.cssText = '';
     dragEl.classList.remove('is-dragging');
-    placeholder.replaceWith(dragEl);          // dragEl back in the list at correct spot
-    placeholder = null;
 
-    // NOW read the DOM order — dragEl is in the right position, indices are stale but present
+    // Read final DOM order and update editPlanCopy
     const newOrder = [];
-    listEl.querySelectorAll('.edit-ex-item').forEach(item => {
+    getItems().forEach(item => {
       const idx = parseInt(item.dataset.idx);
       if (!isNaN(idx) && editPlanCopy[idx]) newOrder.push({ ...editPlanCopy[idx] });
     });
     editPlanCopy.length = 0;
     newOrder.forEach(ex => editPlanCopy.push(ex));
 
+    dragEl = null;
+    renderEditList();
+  }
+
+  function cancelDrag() {
+    if (!dragEl) return;
+    dragEl.classList.remove('is-dragging');
     dragEl = null;
     renderEditList();
   }
